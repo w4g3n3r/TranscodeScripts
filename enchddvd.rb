@@ -11,22 +11,31 @@ class Script
 		@arguments = arguments
 		@stdin = stdin		
 		
-		@converter = Converter.new
+		@calc = Calculator.new
 		@options = OpenStruct.new
-		@options.max_video_bitrate = 24000
+		@options.max_video_bitrate = 9800
+		@options.audio_bitrate = 384
+		@options.media_type = "DVD5"
+		@options.scale = "1280:720"
+		@options.aspect = "16/9"
+		@options.threads = "4"
 	end
 	
 	def run
+	
+		parse_options		
 		
-		if parsed_options? && !@arguments.empty?
+		if !@arguments.empty?
 			@arguments.each do |file|
 				if File.exist?(file) && File.readable?(file)
 					
-					@media_info = @converter.identify(file)
+					@media_info = @calc.identify(file)
 					
 					@length = @media_info["ID_LENGTH"].to_f
-					@audio_size = @converter.audio_size(@length, @options.audio_bitrate)
-					@avg_bitrate = @converter.avg_bitrate(@length, @audio_size, @options.media_type)
+					@audio_size = @calc.audio_size(@length, @options.audio_bitrate)
+					@avg_bitrate = @calc.avg_bitrate(@length, @audio_size, @options.media_type)
+					
+					if @avg_bitrate > 24000 then @avg_bitrate = 24000 end
 					
 					@avg_bitrate = case
 						when @avg_bitrate <= @options.max_video_bitrate: @avg_bitrate
@@ -38,18 +47,18 @@ class Script
 					@mpegopts = {
 						"format"=>"dvd",
 						"tsaf"=>"",
-						"vaspect"=>"16/9",
+						"vaspect"=>@options.aspect,
 						"muxrate"=>"131072",
 						"vbitrate"=>@avg_bitrate
 					}
 					
 					@lavcopts = {
-						"threads"=>"4",
+						"threads"=>@options.threads,
 						"vcodec"=>"mpeg2video",
 						"vbitrate"=>@avg_bitrate,
 						"vrc_maxrate"=>@options.max_video_bitrate,
 						"vrc_buf_size"=>"2867",
-						"aspect"=>"16/9",
+						"aspect"=>@options.aspect,
 						"vb_strategy"=>"0",
 						"vratetol"=>"1000",
 						"keyint"=>"18",
@@ -71,7 +80,8 @@ class Script
 						"mencoder",
 						"'#{file}'",
 						"-ofps 30000/1001",
-						"-ovc lavc -oac lavc -of mpeg -vf harddup,scale=1280:720",
+						"-ovc lavc -oac lavc -of mpeg",
+						"-vf harddup,scale=#{@options.scale}",
 						"-mpegopts #{hash_to_params(@mpegopts)}",
 						"-lavcopts #{hash_to_params(@lavcopts)}",
 						"-o '#{file}.mpg'"						
@@ -87,23 +97,17 @@ class Script
 					puts "#{file} does not exist or is not readable."
 				end
 			end
-
-		else
-			# TODO Display usage
-			p "No dice."
 		end
 	end
 	
 	protected
-		def parsed_options?
+		def parse_options
 			
 			opts = OptionParser.new
+			opts.banner = "Usage: enchddvd.rb [options] files"
 			
-			opts.on('-t', '--test') do |t|
-				@options.test_run = true
-			end
-			
-			opts.on('-m', '--media-size [MEDIA]', @converter.media.keys) do |m|
+			opts.on('-m', '--media-type [MEDIA]', @calc.media.keys,
+				"The media the encode should fit on (ex. DVD5, DVD9, HDDVD).") do |m|
 		  	@options.media_type = m
 	  	end
 	  	
@@ -112,20 +116,43 @@ class Script
   		end
   		
   		opts.on('-b', '--max-video-bitrate BITRATE', Integer) do |b|
-  			@options.max_video_bitrate = case
-  				when b < @options.max_video_bitrate : b
-  				else @options.max_video_bitrate
-				end
+  			@options.max_video_bitrate = b
 			end
 			
-			opts.on('-h', '--help') do
+			opts.on('-p', '--threads COUNT',
+				"The number of threads to spawn durring encoding.") do |count|
+				@options.threads = count
+			end
+			
+			opts.on('-r', '--aspect-ratio RATIO',
+				"The aspect ratio of the output (ex. 16/9)") do |ratio|
+				@options.aspect = ratio
+			end
+			
+			opts.on('-s', '--scale SCALE', 
+				"The width:height of the output (ex. 720:480)") do |scale|
+				@options.scale = scale
+			end
+			
+			opts.on('-t', '--test-run',
+				"Encode the first 30 seconds of the input file for testing.") do |t|
+				@options.test_run = true
+			end
+			
+			opts.on('-h', '--help', "This screen.") do
 				puts opts
 				exit
 			end
 			
-			opts.parse!(@arguments) rescue return false
+			opts.parse!(@arguments) 
 			
-			true
+			if @arguments.empty?
+				puts opts
+			end
+			
+			rescue
+				puts opts
+				exit
 		end
 		
 		def hash_to_params(hash)
@@ -146,7 +173,7 @@ class Script
 		
 end
 
-class Converter
+class Calculator
 
 	attr_accessor :media
 	
@@ -185,5 +212,3 @@ end
 script = Script.new(ARGV, STDIN)
 script.run
 
-
-#identValues = Hash[*ident.scan(/(\w+)=(.*)/).flatten]
