@@ -87,10 +87,20 @@ class Script
 						"-o '#{file}.mpg'"						
 					]
 					
-					if @options.test_run
-						@mencoder.insert(@mencoder.length, "-endpos 30")
+					if @media_info["ID_AUDIO_NCH"].to_i == 6
+						@mencoder.insert(@mencoder.length, "-channels 6")
+						if @media_info["ID_DEMUXER"] == "mkv"
+							@mencoder.insert(@mencoder.length, 
+								"-af channels=6:6:0:0:4:1:1:2:2:3:3:4:5:5")
+						end
 					end
 					
+					if @options.test_run
+						@mencoder.insert(@mencoder.length, "-endpos 30")
+					end				
+					
+					#pp @media_info
+					#puts @mencoder.join(" ")
 					system(@mencoder.join(" "))
 					puts $?
 				else
@@ -195,8 +205,10 @@ class Calculator
 	end
 	
 	def identify(file)
-		ident = %x[ mplayer #{file} -identify -nosound -vc dummy -vo null 2>&1 ]
-		return Hash[*ident.scan(/(\w+)=(.*)/).flatten]
+		ident = %x[ mplayer #{file} -identify -frames 0 2>&1 ]
+		# The important values are output first. Reverse the array
+		# so the important values overwrite the less important dupes.
+		return Hash[*ident.scan(/(\w+)=(.*)/).reverse.flatten]
 	end
 	
 	def audio_size(length, bitrate)
